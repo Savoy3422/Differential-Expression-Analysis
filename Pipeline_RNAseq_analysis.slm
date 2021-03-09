@@ -1,0 +1,260 @@
+#!/bin/bash -l
+#SBATCH --job-name=RNAseq_o3
+#SBATCH --output=Pipeline_RNAseq_analysis_o3.txt
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=1
+#SBATCH --mem=10
+#SBATCH --account=qac
+#SBATCH --partition=serial
+
+# This script accomplishes paired-end trimming by trimmomatic
+# There is en decontamination with bowtie, and finally Transcript quantification with Kallisto.
+
+#### The above header lines do the following:
+# Shell declaration
+# Carry environment variables from ash to node that runs job
+# execute job as if it was in the current directory
+# Print output messages to the file "RNAseq_trim.txt"
+# Join error messages together with output messages 
+# request a node with 5GB memory, up to 7 GB virtual memory
+
+# Print out the current date/time
+date
+
+
+## Load the following modules:
+module load trimmomatic
+module load samtools    
+module load fastqc
+module load kallisto
+module load bowtie2
+module load hisat2
+module load stringtie
+module load tabix samtools
+
+
+### This script is designed to take two parameters: 
+## The first one will be the folder where RNA-seq raw FASTQ files are stored. The path has to end with a slash "/"
+## The second parameter will be a "human-readable" sample ID that new files will be assigned.
+
+
+INPUT_PATH="$1/"
+SAMPLE_ID=$2
+ORGANISM=$3
+SINGLE_END=$4
+INPUT_FASTQ_1=$5
+INPUT_FASTQ_2=$6
+
+
+DECONTAMINATE=1
+if [ "${ORGANISM}" == "" ]; then
+	echo "Need to specify an organism as 3rd argument to script call"
+	exit 1
+else
+	if [ "${ORGANISM}" == "human" ]; then
+		DECONTAMINATE=1
+		echo "human"
+		IGENOMES_PATH=/Volumes/hts_core/Shared/igenomes/Homo_sapiens/UCSC/hg19/
+		ORGANISM="hum"
+		KALLISTO_TRANSCRIPT_INDEX_PATH=/Volumes/hts_core/Shared/kallisto/Homo_sapiens.GRCh38.cdna.all.fa.bgz
+	else 
+		echo "Not human"
+		if [ "${ORGANISM}" == "mouse" ]; then
+			echo "mouse"
+			IGENOMES_PATH=/Volumes/hts_core/Shared/igenomes/Mus_musculus/UCSC/mm10/
+			DECONTAMINATE=1
+			ORGANISM="mus"
+			KALLISTO_TRANSCRIPT_INDEX_PATH=/Volumes/hts_core/Shared/kallisto/Mus_musculus.GRCm38.cdna.all.idx
+		else
+			echo "Not mouse"
+			if [ "${ORGANISM}" == "J2315" ]; then
+				echo "Burkholderia.cenocepacia"
+				DECONTAMINATE=1
+				ORGANISM="burkholderia.cenocepacia"
+				IGENOMES_PATH=/Volumes/hts_core/Shared/igenomes/Homo_sapiens/UCSC/hg19/
+				KALLISTO_TRANSCRIPT_INDEX_PATH=/Volumes/qac/prj/cgc-subs/20180307-jf-gp9954261-20180110/analysis/J2315/index
+			else
+				if [ "${ORGANISM}" == "ebv" ]; then
+					echo "human+ebv"
+					IGENOMES_PATH=/Volumes/hts_core/Shared/igenomes/Homo_sapiens/UCSC/hg19/
+					ORGANISM="hum"
+					KALLISTO_TRANSCRIPT_INDEX_PATH=/Volumes/cgm/scratch/Pelikan/data/kallisto_grch38_ebv/index
+				else
+					echo "Not performing decontamination - no data assigned to organism ${ORGANISM}"
+				fi
+			fi
+		
+		fi
+	fi
+fi
+
+
+
+WORK_DIR=`pwd`/
+FASTQ_DIR="${WORK_DIR}01_fastq/"
+mkdir -p ${FASTQ_DIR}
+
+
+# TOFIX: Note that there's no provision here for single-end trimming
+
+# Make some directories to store results.
+BASENAME="${WORK_DIR}${SAMPLE_ID}"
+mkdir -p "${WORK_DIR}"
+LOG_DIR="${WORK_DIR}logs/${SAMPLE_ID}/"
+mkdir -p ${LOG_DIR}
+
+
+FASTQC_DIR=${LOG_DIR}
+mkdir -p ${FASTQC_DIR}before/
+mkdir -p ${FASTQC_DIR}after/
+if [ ${SINGLE_END} -eq "1" ]; then
+	echo "Doing Single-end processing"
+	# For Single-Read data
+	if [ ! -s ${BASENAME}.decontam.trimmed.fastq.1.gz ]; then
+		echo "Decontaminated file doesn't exist"
+		if [ ! -s ${BASENAME}_1.paired.trimmed.fastq.gz ]; then
+			echo "Trimmed files don't exist"
+			for DIRECTION in `seq 1 1 1`; do
+				if [ ! -s ${BASENAME}_${DIRECTION}.fastq.gz ]; then
+					# merge the reads across lanes
+					zcat ${INPUT_PATH}*_R${DIRECTION}_*.fastq.gz |gzip > ${BASENAME}_${DIRECTION}.fastq.gz
+				fi
+			done
+			fastqc ${BASENAME}_1.fastq.gz  -o ${FASTQC_DIR}before/
+																  	 			   
+												      
+		fi
+	fi
+	echo "Before decontamination"
+	if [ ${DECONTAMINATE} -eq 1 ]; then
+				     	
+		echo "Performing decontamination"
+		###### DECONTAMINATION ############
+		## Now we will do contaminant filtering.  (IF HUMAN/MOUSE - WE DON'T HAVE THE SEQUENCE INFO READY FOR ZEBRAFISH YET, SO THIS PART IS CANCELLED OUT FOR NOW)
+		# first create the contaminant fasta for the appropriate organism
+												       	 
+		CONTAM_DIR=${WORK_DIR}02_decontamination/
+		mkdir -p ${CONTAM_DIR}
+														   	 
+		if [ ! -s ${CONTAM_DIR}contaminant_index.rev.2.bt2 ]; then
+			echo "Contaminant index doesn't exist - Building contaminant index"
+			echo "bowtie2-build ${IGENOMES_PATH}Sequence/AbundantSequences/${ORGANISM}Ribosomal.fa,${IGENOMES_PATH}Sequence/AbundantSequences/phix.fa,${IGENOMES_PATH}Sequence/AbundantSequences/polyA.fa,${IGENOMES_PATH}Sequence/AbundantSequences/polyC.fa,${IGENOMES_PATH}Sequence/AbundantSequences/chrM.fa,${IGENOMES_PATH}Sequence/AbundantSequences/adapter_contam1.fa ${CONTAM_DIR}contaminant_index" | xargs -i echo qsub -N BtyNdx_${SAMPLE_ID} -sync y -V -cwd -o /dev/null -j y -l mem_free=10G -b y \"{}\" | bash
+		fi
+
+		if [ ! -s "${CONTAM_DIR}/${SAMPLE_ID}.decontam.trimmed.fastq.2.gz" ]; then
+			
+			echo "Performing single-end decontamination"
+			echo "bowtie2 -L 10 -p 8 --un-gz=${BASENAME}.decontam.trimmed.fastq.1.gz -x ${CONTAM_DIR}contaminant_index -U ${BASENAME}_1.paired.trimmed.fastq.gz  2>> ${CONTAM_DIR}${SAMPLE_ID}.stats.txt > ${BASENAME}.contaminants.aln" | xargs -i echo qsub -N BtyAln_${SAMPLE_ID} -sync y -V -cwd -o "../analysis_logs/${SAMPLE_ID}_bowtie_decontam.txt" -j y  -l mem_free=10G -pe threaded 8 -b y \"{}\" | bash
+			
+		fi
+		echo "Decontamination finished"
+
+		# One more time, use FASTQC to check alignments after trimming to observe differences
+																																								      	
+		rm ${BASENAME}_1.paired.trimmed.fastq.gz
+		
+		fastqc ${BASENAME}.decontam.trimmed.fastq.1.gz  -o ${FASTQC_DIR}after/
+
+	fi
+else
+	
+	if [ -s "${BASENAME}.decontam.trimmed.fastq.2.gz" ]; then actualsize=$(wc -c <"${BASENAME}.decontam.trimmed.fastq.2.gz"); else actualsize=0; fi
+		if [ $actualsize -le 600000000 ]; then
+			echo "--- Decontaminated file doesn't exist"
+			if [ -s "${BASENAME}_2.trimmed.fastq.gz" ]; then actualsize=$(wc -c <"${BASENAME}.trimmed.fastq.gz"); else actualsize=0; fi
+				if [ $actualsize -le 600000000 ]; then
+					echo "--- Trimmed files don't exist - trimming"
+					#XZFILES="$(swift list ${TYPE} -p ${SAMPLE_ID/\./\/} )"
+
+					#echo ${XZFILES} > ${LOG_DIR}${SAMPLE_ID}input_files.txt
+					#arr=(${XZFILES})
+					#INPUTFILES=""
+					#INPUTFILES=$(for element in "${arr[@]}"; do INPUTFILES="${INPUTFILES}${O3_ACCT}${element} "; done; echo -e "${INPUTFILES}")
+					#for element in "${arr[@]}"; do echo "${INPUTFILES}${O3_ACCT}${element} "; done;
+			
+					# Now we should have two fastq.gz files named with the SAMPLE_ID variable 
+					# representing the forward (SAMPLE_ID_1.fastq.gz reads and reverse (SAMPLE_ID_2.fastq.gz)
+					# reads. We can use the FASTQC tool to check these files for contamination issues before
+					# we do trimming and decontamination.
+					if [ ! -s ${LOG_DIR}fastqcJob.txt ]; then
+				
+						#echo "o3-do.rb --source-env --verbose "${INPUTFILES}" \"fastqc  <(xzcat {1} {3}) <(xzcat {2} {4}) -o ${FASTQC_DIR}before/\" " | xargs -i echo sbatch --partition=serial --account=qac --wait --cpus-per-task=1 --job-name="fastqc_before" --mem-per-cpu=40 --ntasks=1  --output=${LOG_DIR}${SAMPLE_ID}.fastqcJob.log --wrap=\"{}\" | bash
+						sbatch --partition=serial --account=qac  --cpus-per-task=1 --job-name="fastqc_before" --mem-per-cpu=40 --ntasks=1  --output=${LOG_DIR}${SAMPLE_ID}.fastqcJob.log --wrap="fastqc  ${INPUT_FASTQ_1} ${INPUT_FASTQ_2} -o ${FASTQC_DIR}before/"
+					fi 
+																					  
+				
+					#sbatch --partition=serial --account=qac --wait --cpus-per-task=10 --job-name="Trimmomatic-pe" --mem-per-cpu=12 --ntasks=1  --output=${LOG_DIR}${SAMPLE_ID}.trimmomatic.log --wrap="o3-do.rb --source-env --verbose ${INPUTFILES} \"trimmomatic_pe -threads 10 -phred33  <(xzcat {1}) <(xzcat {2}) ${FASTQ_DIR}${SAMPLE_ID}_R1.fastq.gz /dev/null  ${FASTQ_DIR}${SAMPLE_ID}_R2.fastq.gz  /dev/null ILLUMINACLIP:/home/pelikanr/tools/illuminaAdapters.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:5:15 MINLEN:15\" "
+					
+					sbatch --partition=serial --account=qac --wait --cpus-per-task=12 --job-name="Trimmomatic-pe" --mem-per-cpu=12 --ntasks=1  --output=${LOG_DIR}${SAMPLE_ID}.trimmomatic.log --wrap="trimmomatic_pe -threads 12 -phred33  ${INPUT_FASTQ_1} ${INPUT_FASTQ_2} ${FASTQ_DIR}${SAMPLE_ID}_R1.fastq.gz /dev/null  ${FASTQ_DIR}${SAMPLE_ID}_R2.fastq.gz  /dev/null ILLUMINACLIP:/Volumes/hts_core/Shared/illumina_adapter_clips.fa:2:30:10 LEADING:3 TRAILING:3 SLIDINGWINDOW:5:15 MINLEN:15"
+
+				fi
+				echo "Before decontamination"
+				if [ ${DECONTAMINATE} -eq 1 ]; then
+					     	
+					echo "Performing decontamination"
+					###### DECONTAMINATION ############
+					## Now we will do contaminant filtering.  (IF HUMAN/MOUSE - WE DON'T HAVE THE SEQUENCE INFO READY FOR ZEBRAFISH YET, SO THIS PART IS CANCELLED OUT FOR NOW)
+					# first create the contaminant fasta for the appropriate organism
+													       	 
+					CONTAM_DIR=${WORK_DIR}/02_decontamination/
+					mkdir -p ${CONTAM_DIR}
+															   	 
+					if [ ! -s ${CONTAM_DIR}contaminant_index.rev.2.bt2 ]; then
+						echo "Contaminant index doesn't exist - Building contaminant index"
+						if [ "${ORGANISM}" == "burkholderia.cenocepacia" ]; then
+							sbatch --partition=serial --account=qac --wait --job-name="bowtie_index" --output=${LOG_DIR}${SAMPLE_ID}.bowtie.index.log --cpus-per-task=1 --mem-per-cpu=12 --wrap="bowtie2-build ${IGENOMES_PATH}Sequence/AbundantSequences/phix.fa,${IGENOMES_PATH}Sequence/AbundantSequences/polyA.fa,${IGENOMES_PATH}Sequence/AbundantSequences/polyC.fa,${IGENOMES_PATH}Sequence/AbundantSequences/chrM.fa,${IGENOMES_PATH}Sequence/AbundantSequences/adapter_contam1.fa ${CONTAM_DIR}contaminant_index"  
+						else
+							sbatch --partition=serial --account=qac --wait --job-name="bowtie_index" --output=${LOG_DIR}${SAMPLE_ID}.bowtie.index.log --cpus-per-task=1 --mem-per-cpu=12 --wrap="bowtie2-build ${IGENOMES_PATH}Sequence/AbundantSequences/${ORGANISM}Ribosomal.fa,${IGENOMES_PATH}Sequence/AbundantSequences/phix.fa,${IGENOMES_PATH}Sequence/AbundantSequences/polyA.fa,${IGENOMES_PATH}Sequence/AbundantSequences/polyC.fa,${IGENOMES_PATH}Sequence/AbundantSequences/chrM.fa,${IGENOMES_PATH}Sequence/AbundantSequences/adapter_contam1.fa ${CONTAM_DIR}contaminant_index"  
+						fi
+					fi
+
+					if [ ! -s "${CONTAM_DIR}/${SAMPLE_ID}.decontam.trimmed.fastq.2.gz" ]; then
+						# check to see if we are dealing with paired-end or single-end data.
+						
+						echo "Performing paired-end decontamination"
+				
+						sbatch --partition=serial --account=qac --wait --job-name="bowtie_decontam" --output=${LOG_DIR}${SAMPLE_ID}.bowtie_decontam.log --cpus-per-task=12 --mem-per-cpu=12 --wrap="bowtie2 -L 10 -p 12 --un-conc-gz ${BASENAME}.decontam.trimmed.fastq.gz -x ${CONTAM_DIR}contaminant_index -1 ${FASTQ_DIR}${SAMPLE_ID}_R1.fastq.gz -2 ${FASTQ_DIR}${SAMPLE_ID}_R2.fastq.gz 2>> ${LOG_DIR}bowtie.stats.txt > /dev/null"
+						#echo "bowtie2 -L 10 -p 8      --un-gz=${BASENAME}.decontam.trimmed.fastq.gz -x ${CONTAM_DIR}contaminant_index -U ${FASTQ_DIR}${SAMPLE_ID}.trimmed.fastq.gz                                    2>> ${CONTAM_DIR}${SAMPLE_ID}.stats.txt > /dev/null" | xargs -i echo qsub -N BtyAln_${SAMPLE_ID} -sync y -V -cwd -o "${FASTQC_DIR}/${SAMPLE_ID}_bowtie_decontam.txt" -j y  -l mem_free=10G -pe threaded 8 -b y \"{}\" | bash
+			
+					fi
+					echo "Decontamination finished"
+
+					# One more time, use FASTQC to check alignments after trimming to observe differences
+																																									      	
+					rm ${BASENAME}_1.paired.trimmed.fastq.gz
+					rm ${BASENAME}_2.paired.trimmed.fastq.gz
+					fastqc ${BASENAME}.decontam.trimmed.fastq.1.gz ${BASENAME}.decontam.trimmed.fastq.2.gz -o ${FASTQC_DIR}after/
+
+				fi
+				# Clean up afterwards, remove the fastq files we created before trimming 
+																																												  
+				rm ${BASENAME}_1.fastq.gz 
+				rm ${BASENAME}_2.fastq.gz
+			fi
+		fi
+
+
+
+		# Now run kallisto with the trimmed,decontaminated data
+		# TOFIX: still no provision for single-end data here
+
+		#OUTPUT_DIR=${WORK_DIR}"/04_HISAT2/${SAMPLE_ID}/"
+		OUTPUT_DIR=${WORK_DIR}"/03_kallisto/${SAMPLE_ID}/"
+
+		if [ ! -d ${OUTPUT_DIR} ]; then
+			mkdir -p ${OUTPUT_DIR}
+		fi
+		if [ ${SINGLE_END} -eq "1" ]; then
+   
+			hisat2 -p 4 -x /Volumes/hts_core/Shared/hisat2/grch38_snp_tran/genome_snp_tran --dta -U ${BASENAME}.decontam.trimmed.fastq.1.gz | samtools view -bo ${OUTPUT_DIR}${SAMPLE_ID}.bam -
+	
+		fi
+
+		HDF5_DISABLE_VERSION_CHECK=1
+		sbatch --partition=serial --account=qac --job-name="kallisto" --output=${LOG_DIR}${SAMPLE_ID}._kallisto.log --cpus-per-task=4 --mem-per-cpu=12 --wrap="kallisto quant -i ${KALLISTO_TRANSCRIPT_INDEX_PATH}  -o ${OUTPUT_DIR} -b 50 --bias -t 4 ${BASENAME}.decontam.trimmed.fastq.1.gz ${BASENAME}.decontam.trimmed.fastq.2.gz" 
+		#hisat2 -p 1 -x /Volumes/cgm/scratch/Pelikan/data/hisat2_ebv  -1 ${BASENAME}.decontam.trimmed.fastq.1.gz -2 ${BASENAME}.decontam.trimmed.fastq.2.gz  | samtools view -bo ${OUTPUT_DIR}${SAMPLE_ID}.bam -
+		#if [ ! -s ${OUTPUT_DIR}${SAMPLE_ID}.bam ]; then
+		#	echo "hisat2 -p 4 -x /Volumes/cgm/scratch/Pelikan/data/hisat2_ebv --dta -1 ${BASENAME}.decontam.trimmed.fastq.1.gz -2 ${BASENAME}.decontam.trimmed.fastq.2.gz | samtools view -@ 4 -m 10G -q 10 -b - | samtools sort -@ 4 -m 10G -o ${OUTPUT_DIR}${SAMPLE_ID}.bam -T ${OUTPUT_DIR}${SAMPLE_ID}.bam.tmp -" | xargs -i echo qsub -N HISAT2_${SAMPLE_ID}  -V -cwd -pe threaded 4 -o "${LOG_DIR}${SAMPLE_ID}_hisat.txt" -j y -l mem_free=10G,h_vmem=12G -b y  \"{}\" | bash
+		#fi
+
+		#stringtie -G /Volumes/cgm/scratch/Pelikan/data/chrEBV.gtf ${OUTPUT_DIR}${SAMPLE_ID}.bam -o ${OUTPUT_DIR}${SAMPLE_ID}.stringtie.out
