@@ -54,31 +54,31 @@ else
 	if [ "${ORGANISM}" == "human" ]; then
 		DECONTAMINATE=1
 		echo "human"
-		IGENOMES_PATH=/Volumes/hts_core/Shared/igenomes/Homo_sapiens/UCSC/hg19/
+		IGENOMES_PATH=/.../igenomes/Homo_sapiens/UCSC/hg19/
 		ORGANISM="hum"
-		KALLISTO_TRANSCRIPT_INDEX_PATH=/Volumes/hts_core/Shared/kallisto/Homo_sapiens.GRCh38.cdna.all.fa.bgz
+		KALLISTO_TRANSCRIPT_INDEX_PATH=/.../kallisto/Homo_sapiens.GRCh38.cdna.all.fa.bgz
 	else 
 		echo "Not human"
 		if [ "${ORGANISM}" == "mouse" ]; then
 			echo "mouse"
-			IGENOMES_PATH=/Volumes/hts_core/Shared/igenomes/Mus_musculus/UCSC/mm10/
+			IGENOMES_PATH=/.../igenomes/Mus_musculus/UCSC/mm10/
 			DECONTAMINATE=1
 			ORGANISM="mus"
-			KALLISTO_TRANSCRIPT_INDEX_PATH=/Volumes/hts_core/Shared/kallisto/Mus_musculus.GRCm38.cdna.all.idx
+			KALLISTO_TRANSCRIPT_INDEX_PATH=/.../kallisto/Mus_musculus.GRCm38.cdna.all.idx
 		else
 			echo "Not mouse"
 			if [ "${ORGANISM}" == "J2315" ]; then
 				echo "Burkholderia.cenocepacia"
 				DECONTAMINATE=1
 				ORGANISM="burkholderia.cenocepacia"
-				IGENOMES_PATH=/Volumes/hts_core/Shared/igenomes/Homo_sapiens/UCSC/hg19/
-				KALLISTO_TRANSCRIPT_INDEX_PATH=/Volumes/qac/prj/cgc-subs/20180307-jf-gp9954261-20180110/analysis/J2315/index
+				IGENOMES_PATH=/.../igenomes/Homo_sapiens/UCSC/hg19/
+				KALLISTO_TRANSCRIPT_INDEX_PATH=/.../prj/cgc-subs/20180307-jf-gp9954261-20180110/analysis/J2315/index
 			else
 				if [ "${ORGANISM}" == "ebv" ]; then
 					echo "human+ebv"
-					IGENOMES_PATH=/Volumes/hts_core/Shared/igenomes/Homo_sapiens/UCSC/hg19/
+					IGENOMES_PATH=/.../igenomes/Homo_sapiens/UCSC/hg19/
 					ORGANISM="hum"
-					KALLISTO_TRANSCRIPT_INDEX_PATH=/Volumes/cgm/scratch/Pelikan/data/kallisto_grch38_ebv/index
+					KALLISTO_TRANSCRIPT_INDEX_PATH=/.../data/kallisto_grch38_ebv/index
 				else
 					echo "Not performing decontamination - no data assigned to organism ${ORGANISM}"
 				fi
@@ -246,15 +246,15 @@ else
 		fi
 		if [ ${SINGLE_END} -eq "1" ]; then
    
-			hisat2 -p 4 -x /Volumes/hts_core/Shared/hisat2/grch38_snp_tran/genome_snp_tran --dta -U ${BASENAME}.decontam.trimmed.fastq.1.gz | samtools view -bo ${OUTPUT_DIR}${SAMPLE_ID}.bam -
+			hisat2 -p 4 -x /.../hisat2/grch38_snp_tran/genome_snp_tran --dta -U ${BASENAME}.decontam.trimmed.fastq.1.gz | samtools view -bo ${OUTPUT_DIR}${SAMPLE_ID}.bam -
 	
 		fi
 
 		HDF5_DISABLE_VERSION_CHECK=1
 		sbatch --partition=serial --account=qac --job-name="kallisto" --output=${LOG_DIR}${SAMPLE_ID}._kallisto.log --cpus-per-task=4 --mem-per-cpu=12 --wrap="kallisto quant -i ${KALLISTO_TRANSCRIPT_INDEX_PATH}  -o ${OUTPUT_DIR} -b 50 --bias -t 4 ${BASENAME}.decontam.trimmed.fastq.1.gz ${BASENAME}.decontam.trimmed.fastq.2.gz" 
-		#hisat2 -p 1 -x /Volumes/cgm/scratch/Pelikan/data/hisat2_ebv  -1 ${BASENAME}.decontam.trimmed.fastq.1.gz -2 ${BASENAME}.decontam.trimmed.fastq.2.gz  | samtools view -bo ${OUTPUT_DIR}${SAMPLE_ID}.bam -
+		#hisat2 -p 1 -x /.../data/hisat2_ebv  -1 ${BASENAME}.decontam.trimmed.fastq.1.gz -2 ${BASENAME}.decontam.trimmed.fastq.2.gz  | samtools view -bo ${OUTPUT_DIR}${SAMPLE_ID}.bam -
 		#if [ ! -s ${OUTPUT_DIR}${SAMPLE_ID}.bam ]; then
-		#	echo "hisat2 -p 4 -x /Volumes/cgm/scratch/Pelikan/data/hisat2_ebv --dta -1 ${BASENAME}.decontam.trimmed.fastq.1.gz -2 ${BASENAME}.decontam.trimmed.fastq.2.gz | samtools view -@ 4 -m 10G -q 10 -b - | samtools sort -@ 4 -m 10G -o ${OUTPUT_DIR}${SAMPLE_ID}.bam -T ${OUTPUT_DIR}${SAMPLE_ID}.bam.tmp -" | xargs -i echo qsub -N HISAT2_${SAMPLE_ID}  -V -cwd -pe threaded 4 -o "${LOG_DIR}${SAMPLE_ID}_hisat.txt" -j y -l mem_free=10G,h_vmem=12G -b y  \"{}\" | bash
+		#	echo "hisat2 -p 4 -x /.../data/hisat2_ebv --dta -1 ${BASENAME}.decontam.trimmed.fastq.1.gz -2 ${BASENAME}.decontam.trimmed.fastq.2.gz | samtools view -@ 4 -m 10G -q 10 -b - | samtools sort -@ 4 -m 10G -o ${OUTPUT_DIR}${SAMPLE_ID}.bam -T ${OUTPUT_DIR}${SAMPLE_ID}.bam.tmp -" | xargs -i echo qsub -N HISAT2_${SAMPLE_ID}  -V -cwd -pe threaded 4 -o "${LOG_DIR}${SAMPLE_ID}_hisat.txt" -j y -l mem_free=10G,h_vmem=12G -b y  \"{}\" | bash
 		#fi
 
-		#stringtie -G /Volumes/cgm/scratch/Pelikan/data/chrEBV.gtf ${OUTPUT_DIR}${SAMPLE_ID}.bam -o ${OUTPUT_DIR}${SAMPLE_ID}.stringtie.out
+		#stringtie -G /.../data/chrEBV.gtf ${OUTPUT_DIR}${SAMPLE_ID}.bam -o ${OUTPUT_DIR}${SAMPLE_ID}.stringtie.out
