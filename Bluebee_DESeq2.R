@@ -13,7 +13,7 @@ library(openxlsx)
 
 
 ### Define directory for analysis ###
-base.dir<-"/Volumes/qac/prj/csiszara/20181113-hp/analysis/"
+base.dir<-"/.../analysis/"
 
 ### Annotation files ###
 ensembl = useEnsembl(biomart="ensembl", dataset="mmusculus_gene_ensembl") # link to biomart library for GRCh38 build
@@ -21,7 +21,7 @@ ensembl = useEnsembl(biomart="ensembl", dataset="mmusculus_gene_ensembl") # link
 genes=getBM(attributes = c('ensembl_gene_id','external_gene_name', 'description'),mart=ensembl) # selected options
 colnames(genes)=c('Ensembl_ID', 'Gene', "Description") # name columns
 
-annot<-read.table("/Volumes/acbm/data/Indra_documents/STAR_GRCh38_reference/Gene_Mus_musculus.GRCm38.88.clean.txt",header=T,sep=" ")
+annot<-read.table("/.../STAR_GRCh38_reference/Gene_Mus_musculus.GRCm38.88.clean.txt",header=T,sep=" ")
 
 
 ########################
