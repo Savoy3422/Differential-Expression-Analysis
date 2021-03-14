@@ -14,7 +14,7 @@ library("ComplexHeatmap") # for heatmap
 
 
 ### Define directory for analysis ###
-base.dir<-"/Volumes/qac/prj/csiszara/20181113-nmn/analysis/"
+base.dir<-"/.../analysis/"
 
 ### Annotation files ###
 ensembl = useEnsembl(biomart="ensembl", dataset="mmusculus_gene_ensembl") # link to biomart library for GRCh38 build
